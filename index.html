@@ -28,6 +28,8 @@
       <li><a href="#" onclick="showContent('tugas5')">Preprocessing Berita Online</a></li>
       <li><a href="#" onclick="showContent('tugas6')">TF-IDF & Word Embedding</a></li>
       <li><a href="#" onclick="showContent('tugas7')">LDA</a></li>
+      <li><a href="#" onclick="showContent('uts1')">UTS 1</a></li>
+      <li><a href="#" onclick="showContent('uts2')">UTS 2</a></li>
     </ul>
   </div>
 
@@ -605,9 +607,162 @@ print("\nContoh hasil klasifikasi topik:")
 print(df[['headline_text', 'predicted_topic']].head(10))
 </code></pre>
       </div>
-
     </div>
+
+     <!-- UTS -->
+    <div id="uts1" class="content">
+      <h1>Klasifikasi Berita</h1>
+      <div class="code-box">
+<pre><code class="language-python">
+import pandas as pd
+import numpy as np
+import re
+from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
+from sklearn.decomposition import LatentDirichletAllocation
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.svm import LinearSVC
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+from scipy.sparse import hstack, csr_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
+import joblib
+</code></pre>
+      </div>
+
+       <div class="code-box">
+<pre><code class="language-python">
+file_path = "berita_.csv"  
+df = pd.read_csv(file_path, engine='python', encoding='utf-8', on_bad_lines='skip')
+
+</code></pre>
+      </div>
+#membaca data
+col_lengths = {col: df[col].astype(str).map(len).median() for col in df.columns}
+col_uniques = {col: df[col].nunique(dropna=True) for col in df.columns}
+col_info = pd.DataFrame({"median_len": col_lengths, "n_unique": col_uniques}).sort_values("median_len", ascending=False)
+text_col = col_info.index[0]
+possible_labels = col_info[(col_info.index != text_col) & (col_info['n_unique'] <= 100)].sort_values('n_unique')
+label_col = possible_labels.index[0] if not possible_labels.empty else col_info.index[1]
+print("Text column:", text_col, "Label column:", label_col)
+
+df = df[[text_col, label_col]].rename(columns={text_col: 'text', label_col: 'label'}).dropna()
+df['text'] = df['text'].astype(str)
+df['label'] = df['label'].astype(str)
+
+       <div class="code-box">
+<pre><code class="language-python">
+fallback_stopwords = {
+    "yang","dan","di","ke","untuk","dari","dengan","pada","adalah","itu","ini","saya","kita","kamu","mereka",
+    "telah","akan","juga","nya","saja","sebagai","oleh","atau","jika","karena","dapat","lebih","sudah","tidak",
+    "masih","tersebut","apa","siapa","kenapa","bagaimana","sebuah","setiap","dalam","hingga","yg","dgn","pd"
+}
+def preprocess_simple(text):
+    text = text.lower()
+    text = re.sub(r'http\S+',' ', text)
+    text = re.sub(r'[^a-z0-9\s]', ' ', text)
+    tokens = text.split()
+    tokens = [t for t in tokens if t not in fallback_stopwords and len(t) > 2 and not t.isdigit()]
+    return " ".join(tokens)
+
+df['clean'] = df['text'].apply(preprocess_simple)
+print(df[['text', 'clean']].head())
+
+</code></pre>
+      </div>
+
+       <div class="code-box">
+<pre><code class="language-python">
+# LDA
+count_vectorizer = CountVectorizer(max_df=0.95, min_df=2)
+dtm = count_vectorizer.fit_transform(df['clean'])
+
+n_topics = 10
+lda = LatentDirichletAllocation(n_components=n_topics, random_state=42, learning_method='batch', max_iter=10)
+lda_topics = lda.fit_transform(dtm)
+
+tfidf = TfidfVectorizer(max_df=0.95, min_df=2)
+tfidf_features = tfidf.fit_transform(df['clean'])
+
+#mix LDA TF-IDF
+lda_sparse = csr_matrix(lda_topics)
+X = hstack([tfidf_features, lda_sparse])
+y = df['label']
+</code></pre>
+      </div>
+
+       <div class="code-box">
+<pre><code class="language-python">
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+
+nb = MultinomialNB(alpha=1.0)
+nb.fit(X_train, y_train)
+y_pred_nb = nb.predict(X_test)
+
+svm = LinearSVC(C=1.0, max_iter=10000)
+svm.fit(X_train, y_train)
+y_pred_svm = svm.predict(X_test)
+
+print("Model Naive Bayes dan SVM berhasil dilatih.")
+
+</code></pre>
+      </div>
+print("Naive Bayes accuracy:", accuracy_score(y_test, y_pred_nb))
+print(classification_report(y_test, y_pred_nb))
+
+print("SVM accuracy:", accuracy_score(y_test, y_pred_svm))
+print(classification_report(y_test, y_pred_svm))
+       <div class="code-box">
+<pre><code class="language-python">
+
+</code></pre>
+      </div>
+
+      <div class="code-box">
+<pre><code class="language-python">
+def get_top_words(model, feature_names, n_top_words=12):
+    topics = []
+    for topic_idx, topic in enumerate(model.components_):
+        top_idx = topic.argsort()[::-1][:n_top_words]
+        topics.append([feature_names[i] for i in top_idx])
+    return topics
+
+feature_names = count_vectorizer.get_feature_names_out()
+top_words = get_top_words(lda, feature_names)
+for i, words in enumerate(top_words):
+    print(f"Topic {i}: {', '.join(words)}")
+
+</code></pre>
+      </div>
+
+      <div class="code-box">
+<pre><code class="language-python">
+# ----------------------------------------------------------
+# 7. Evaluasi dan visualisasi hasil
+# ----------------------------------------------------------
+from sklearn.metrics import accuracy_score
+
+acc_nb = accuracy_score(y_test, y_pred_nb)
+acc_svm = accuracy_score(y_test, y_pred_svm)
+
+print("\n=== Evaluasi Model ===")
+print(f"Naive Bayes accuracy: {acc_nb:.3f}")
+print(f"SVM accuracy: {acc_svm:.3f}")
+
+</code></pre>
+      </div>
+plt.bar(['Naive Bayes', 'SVM'], [acc_nb, acc_svm], color=['green', 'blue'])
+plt.title("Perbandingan Akurasi Model")
+plt.ylabel("Akurasi")
+plt.ylim(0, 1)
+plt.show()
+      <div class="code-box">
+<pre><code class="language-python">
+
+</code></pre>
+      </div>
   </div>
+</div>
 
   <!-- Script untuk switch konten -->
   <script>
